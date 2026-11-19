@@ -18,12 +18,14 @@ public class Message {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Set<String> GENERATED_IDS = new HashSet<>();
     private static final List<Message> SENT_MESSAGES = new ArrayList<>();
+    private static final List<Message> DISREGARDED_MESSAGES = new ArrayList<>();
     private static int totalMessagesSent;
 
     private static final Pattern SOUTH_AFRICAN_INTERNATIONAL_NUMBER =
             Pattern.compile("^\\+27\\d{9}$");
 
     private final String messageId;
+    private final String sender;
     private final int messageNumber;
     private final String recipient;
     private final String messageText;
@@ -32,7 +34,14 @@ public class Message {
     private String messageHash;
 
     public Message(String recipient, String messageText, int messageNumber) {
-        this(generateUniqueMessageId(), recipient, messageText, messageNumber);
+        this(generateUniqueMessageId(), "Unknown", recipient, messageText,
+                messageNumber);
+    }
+
+    public Message(String recipient, String messageText, int messageNumber,
+                   String sender) {
+        this(generateUniqueMessageId(), sender, recipient, messageText,
+                messageNumber);
     }
 
     /**
@@ -40,11 +49,34 @@ public class Message {
      */
     public Message(String messageId, String recipient, String messageText,
                    int messageNumber) {
+        this(messageId, "Unknown", recipient, messageText, messageNumber);
+    }
+
+    public Message(String messageId, String sender, String recipient,
+                   String messageText, int messageNumber) {
+        this(messageId, sender, recipient, messageText, messageNumber,
+                "DRAFT", null, Instant.now());
+    }
+
+    private Message(String messageId, String sender, String recipient,
+                    String messageText, int messageNumber, String status,
+                    String messageHash, Instant createdAt) {
         this.messageId = Objects.requireNonNullElse(messageId, "");
+        this.sender = Objects.requireNonNullElse(sender, "Unknown");
         this.recipient = Objects.requireNonNullElse(recipient, "");
         this.messageText = Objects.requireNonNullElse(messageText, "");
         this.messageNumber = messageNumber;
-        this.createdAt = Instant.now();
+        this.status = Objects.requireNonNullElse(status, "DRAFT");
+        this.messageHash = messageHash;
+        this.createdAt = Objects.requireNonNullElse(createdAt, Instant.now());
+    }
+
+    public static Message restore(String messageId, String sender,
+                                  String recipient, String messageText,
+                                  int messageNumber, String status,
+                                  String messageHash, Instant createdAt) {
+        return new Message(messageId, sender, recipient, messageText,
+                messageNumber, status, messageHash, createdAt);
     }
 
     private static synchronized String generateUniqueMessageId() {
@@ -157,6 +189,20 @@ public static boolean isRecipientCellValid(String recipient) {
         }
     }
 
+    public synchronized boolean markAsDisregarded() {
+        if ("DISREGARDED".equals(status)) {
+            return false;
+        }
+        if ("SENT".equals(status) || "STORED".equals(status)) {
+            return false;
+        }
+        status = "DISREGARDED";
+        if (!DISREGARDED_MESSAGES.contains(this)) {
+            DISREGARDED_MESSAGES.add(this);
+        }
+        return true;
+    }
+
     private synchronized void markAsSent() {
         if (!"SENT".equals(status)) {
             status = "SENT";
@@ -189,6 +235,16 @@ public static boolean isRecipientCellValid(String recipient) {
                 + "\nMessage: " + messageText;
     }
 
+    public String formatFullDetails() {
+        return "Message ID: " + messageId
+                + "\nMessage Hash: " + createMessageHash()
+                + "\nSender: " + sender
+                + "\nRecipient: " + recipient
+                + "\nMessage: " + messageText
+                + "\nStatus: " + status
+                + "\nCreated: " + createdAt;
+    }
+
     /**
      * Returns all messages sent during this run.
      */
@@ -209,6 +265,10 @@ public static boolean isRecipientCellValid(String recipient) {
 
     public String getMessageId() {
         return messageId;
+    }
+
+    public String getSender() {
+        return sender;
     }
 
     public int getMessageNumber() {
@@ -235,8 +295,13 @@ public static boolean isRecipientCellValid(String recipient) {
         return Collections.unmodifiableList(SENT_MESSAGES);
     }
 
+    static List<Message> getDisregardedMessagesForTest() {
+        return Collections.unmodifiableList(DISREGARDED_MESSAGES);
+    }
+
     static void resetSentMessagesForTest() {
         SENT_MESSAGES.clear();
+        DISREGARDED_MESSAGES.clear();
         totalMessagesSent = 0;
     }
 }
